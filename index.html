@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bible Study Builder</title>
+  <style>
+    :root { --pad: 14px; --radius: 12px; --border:#e6e6ee; --bg:#f6f7fb; --card:#fff; }
+    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: var(--bg); color: #111; }
+    header { position: sticky; top: 0; background: var(--card); border-bottom: 1px solid var(--border); padding: var(--pad); z-index: 10; }
+    header h1 { font-size: 18px; margin: 0 0 10px 0; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; }
+    button, input, textarea, select { font-size: 16px; }
+    button { border: 1px solid #d9d9e6; background: #fff; padding: 10px 12px; border-radius: var(--radius); }
+    button.primary { background: #111; color: #fff; border-color: #111; }
+    button.ghost { background: transparent; }
+    button.danger { border-color: #ffb8b8; background: #fff5f5; }
+    main { padding: var(--pad); max-width: 980px; margin: 0 auto; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--pad); margin: 12px 0; }
+    .row { display: grid; gap: 10px; }
+    .row.two { grid-template-columns: 1fr 1fr; }
+    .row.three { grid-template-columns: 1fr 1fr 1fr; }
+    .label { font-size: 12px; color: #555; margin-bottom: 4px; }
+    input, textarea, select {
+      width: 100%; box-sizing: border-box; padding: 10px 12px;
+      border: 1px solid #d9d9e6; border-radius: var(--radius); background: #fff;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    .muted { color: #666; font-size: 13px; }
+    .divider { height: 1px; background: #ececf5; margin: 12px 0; }
+    .list { display: flex; flex-direction: column; gap: 10px; }
+    .item { border: 1px solid #ececf5; border-radius: var(--radius); padding: 12px; background: #fff; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; border: 1px solid #e6e6ee; font-size: 12px; margin: 2px; background: #fafafe; color: #444; }
+    .stickyBar { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    .titleBig { font-size: 20px; font-weight: 800; margin: 6px 0 0 0; }
+    .active { background:#111; color:#fff; border-color:#111; }
+    details { border: 1px solid #ececf5; border-radius: var(--radius); padding: 10px 12px; background: #fff; }
+    details > summary { cursor: pointer; font-weight: 700; }
+    .k { font-weight: 700; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 13px; }
+    .toast {
+      position: fixed; left: 14px; right: 14px; bottom: 16px;
+      background: #111; color: #fff; border-radius: 12px;
+      padding: 12px 12px; display: none; z-index: 99;
+    }
+    .toastRow { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    .toast button { background:#fff; color:#111; border-color:#fff; }
+    .searchHit { background: #fff8c5; padding: 0 2px; border-radius: 4px; }
+    .small { font-size: 12px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Bible Study Builder</h1>
+  <nav>
+    <button class="primary" id="navHome">Home</button>
+    <button id="navTopics">Topics</button>
+    <button id="navSearch">Search</button>
+    <button id="navBackup">Backup</button>
+  </nav>
+</header>
+
+<main>
+  <section id="viewHome" class="card"></section>
+  <section id="viewTopics" class="card" style="display:none;"></section>
+  <section id="viewTopicOverview" class="card" style="display:none;"></section>
+  <section id="viewSearch" class="card" style="display:none;"></section>
+  <section id="viewBackup" class="card" style="display:none;"></section>
+</main>
+
+<div id="toast" class="toast">
+  <div class="toastRow">
+    <div id="toastMsg">Saved</div>
+    <div class="actions" id="toastActions"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const STORAGE_KEY = "bible_study_builder_v1_clean";
+
+  const state = {
+    data: null,
+    currentTopicId: null,
+    currentFocusObjectionId: null,
+    verseTagFilter: "ALL",
+    undo: null,           // { label, restoreFn, expiresAt }
+    toastTimer: null
+  };
+
+  function uid() {
+    return Date.now().toString(16) + Math.random().toString(16).slice(2);
+  }
+
+  function nowISO() { return new Date().toISOString(); }
+
+  function esc(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function parseJSON(text) {
+    try { return JSON.parse(text); } catch { return null; }
+  }
+
+  function defaultData() {
+    return { version: 1, topics: [], verses: [], objections: [] };
+  }
+
+  function load() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultData();
+    const parsed = parseJSON(raw);
+    if (!parsed || !Array.isArray(parsed.topics) || !Array.isArray(parsed.verses) || !Array.isArray(parsed.objections)) return defaultData();
+    return parsed;
+  }
+
+  function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+  }
+
+  function show(viewId) {
+    for (const id of ["viewHome", "viewTopics", "viewTopicOverview", "viewSearch", "viewBackup"]) {
+      document.getElementById(id).style.display = (id === viewId) ? "block" : "none";
+    }
+    setActiveNav(viewId);
+  }
+
+  function setActiveNav(viewId) {
+    const map = {
+      viewHome: "navHome",
+      viewTopics: "navTopics",
+      viewTopicOverview: "navTopics",
+      viewSearch: "navSearch",
+      viewBackup: "navBackup"
+    };
+    for (const btnId of ["navHome","navTopics","navSearch","navBackup"]) {
+      const b = document.getElementById(btnId);
+      b.classList.remove("active");
+      if (map[viewId] === btnId) b.classList.add("active");
+      if (btnId === "navHome") b.classList.add("primary");
+    }
+  }
+
+  function showToast(message, actions) {
+    const toast = document.getElementById("toast");
+    const msg = document.getElementById("toastMsg");
+    const act = document.getElementById("toastActions");
+    msg.textContent = message;
+    act.innerHTML = "";
+
+    if (Array.isArray(actions)) {
+      for (const a of actions) {
+        const btn = document.createElement("button");
+        btn.textContent = a.label;
+        btn.onclick = a.onClick;
+        act.appendChild(btn);
+      }
+    }
+
+    toast.style.display = "block";
+    clearTimeout(state.toastTimer);
+    state.toastTimer = setTimeout(() => { toast.style.display = "none"; }, 3500);
+  }
+
+  function allVerseTags(topicId) {
+    const tags = [];
+    for (const v of state.data.verses) {
+      if (v.topicId !== topicId) continue;
+      for (const t of (v.tags || [])) tags.push(t);
+    }
+    return [...new Set(tags)].sort((a, b) => a.localeCompare(b));
+  }
+
+  function getTopic(topicId) {
+    return state.data.topics.find(t => t.id === topicId);
+  }
+
+  function topicStats(topicId) {
+    return {
+      verses: state.data.verses.filter(v => v.topicId === topicId).length,
+      objections: state.data.objections.filter(o => o.topicId === topicId).length
+    };
+  }
+
+  function renderHome() {
+    const el = document.getElementById("viewHome");
+    el.innerHTML = `
+      <div class="stickyBar">
+        <div>
+          <div class="muted">Quick counts</div>
+          <div class="titleBig">Home</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row two">
+        <div class="card" style="margin:0;">
+          <div class="muted">Topics</div>
+          <div style="font-size:22px; font-weight:800;">${state.data.topics.length}</div>
+        </div>
+        <div class="card" style="margin:0;">
+          <div class="muted">Supporting verses</div>
+          <div style="font-size:22px; font-weight:800;">${state.data.verses.length}</div>
+        </div>
+      </div>
+
+      <div class="row two" style="margin-top:10px;">
+        <div class="card" style="margin:0;">
+          <div class="muted">Objections</div>
+          <div style="font-size:22px; font-weight:800;">${state.data.objections.length}</div>
+        </div>
+        <div class="card" style="margin:0;">
+          <div class="muted">Tip</div>
+          <div>Use Search to find a response instantly (example: "John 1:1").</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderTopics() {
+    const el = document.getElementById("viewTopics");
+    const topics = state.data.topics.slice().sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+
+    el.innerHTML = `
+      <div class="stickyBar">
+        <div>
+          <div class="muted">Library</div>
+          <div class="titleBig">Topics</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row two">
+        <div>
+          <div class="label">New topic</div>
+          <input id="newTopicTitle" placeholder="The Father as the only true God" />
+        </div>
+        <div style="align-self:end;">
+          <button class="primary" id="btnNewTopic">Add Topic</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="list" id="topicList"></div>
+    `;
+
+    const list = el.querySelector("#topicList");
+
+    if (topics.length === 0) {
+      list.innerHTML = `<div class="muted">No topics yet. Add one above.</div>`;
+    } else {
+      list.innerHTML = topics.map(t => {
+        const s = topicStats(t.id);
+        const claimPreview = (t.claim || "").trim();
+        return `
+          <div class="item">
+            <div style="display:flex; justify-content:space-between; gap:10px;">
+              <div style="flex:1;">
+                <div class="k" style="font-size:16px;">${esc(t.title)}</div>
+                <div class="muted">${claimPreview ? "Claim: " + esc(claimPreview) : "No claim yet"}</div>
+                <div class="muted">${s.verses} verses, ${s.objections} responses</div>
+              </div>
+              <div class="actions">
+                <button data-open="${t.id}">Open</button>
+                <button data-del="${t.id}" class="danger">Delete</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    el.querySelector("#btnNewTopic").addEventListener("click", () => {
+      const input = el.querySelector("#newTopicTitle");
+      const title = (input.value || "").trim();
+      if (!title) {
+        showToast("Type a topic name first.");
+        return;
+      }
+      state.data.topics.push({ id: uid(), title, claim: "", createdAt: nowISO(), updatedAt: nowISO() });
+      input.value = "";
+      save();
+      renderTopics();
+      renderHome();
+      showToast("Topic added.");
+    });
+
+    list.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+
+      const openId = btn.getAttribute("data-open");
+      const delId = btn.getAttribute("data-del");
+
+      if (openId) {
+        openTopic(openId);
+        return;
+      }
+
+      if (delId) {
+        const topic = getTopic(delId);
+        if (!topic) return;
+
+        // Soft delete with undo
+        const deleted = {
+          topic: topic,
+          verses: state.data.verses.filter(v => v.topicId === delId),
+          objections: state.data.objections.filter(o => o.topicId === delId)
+        };
+
+        state.data.topics = state.data.topics.filter(t => t.id !== delId);
+        state.data.verses = state.data.verses.filter(v => v.topicId !== delId);
+        state.data.objections = state.data.objections.filter(o => o.topicId !== delId);
+        save();
+
+        state.undo = {
+          label: "Undo delete topic",
+          expiresAt: Date.now() + 8000,
+          restoreFn: () => {
+            state.data.topics.push(deleted.topic);
+            state.data.verses.push(...deleted.verses);
+            state.data.objections.push(...deleted.objections);
+            save();
+            renderTopics();
+            renderHome();
+            showToast("Restored.");
+          }
+        };
+
+        renderTopics();
+        renderHome();
+
+        showToast(`Deleted "${topic.title}".`, [{
+          label: "Undo",
+          onClick: () => {
+            if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
+            state.undo = null;
+          }
+        }]);
+      }
+    });
+  }
+
+  function openTopic(topicId, focusObjectionId) {
+    state.currentTopicId = topicId;
+    state.currentFocusObjectionId = focusObjectionId || null;
+    state.verseTagFilter = "ALL";
+    renderTopicOverview(topicId);
+    show("viewTopicOverview");
+
+    if (state.currentFocusObjectionId) {
+      setTimeout(() => {
+        const el = document.getElementById("obj-" + state.currentFocusObjectionId);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+  }
+
+  function renderTopicOverview(topicId) {
+    const el = document.getElementById("viewTopicOverview");
+    const topic = getTopic(topicId);
+    if (!topic) {
+      el.innerHTML = `<div class="muted">Topic not found.</div>`;
+      return;
+    }
+
+    const tags = allVerseTags(topicId);
+
+    let verses = state.data.verses.filter(v => v.topicId === topicId);
+    if (state.verseTagFilter !== "ALL") verses = verses.filter(v => (v.tags || []).includes(state.verseTagFilter));
+    verses.sort((a, b) => (a.reference || "").localeCompare(b.reference || ""));
+
+    const objections = state.data.objections
+      .filter(o => o.topicId === topicId)
+      .slice()
+      .sort((a, b) => (a.reference || "").localeCompare(b.reference || ""));
+
+    el.innerHTML = `
+      <div class="stickyBar">
+        <button class="ghost" id="btnBackToTopics">Back</button>
+        <div class="actions">
+          <button id="btnGoSearch">Search</button>
+          <button id="btnGoBackup">Backup</button>
+        </div>
+      </div>
+
+      <div class="muted">Topic overview</div>
+      <div class="titleBig">${esc(topic.title)}</div>
+
+      <div class="divider"></div>
+
+      <div class="card">
+        <div class="stickyBar">
+          <div>
+            <div class="k">Claim</div>
+            <div class="muted small">Read view first, edit below when needed.</div>
+          </div>
+        </div>
+        <div style="white-space:pre-wrap; margin-top:8px;">${esc(topic.claim || "") || `<span class="muted">No claim yet.</span>`}</div>
+
+        <details style="margin-top:12px;">
+          <summary>Edit claim</summary>
+          <div style="margin-top:10px;">
+            <textarea id="claimBox" placeholder="Claim...">${esc(topic.claim || "")}</textarea>
+            <div class="actions">
+              <button class="primary" id="btnSaveClaim">Save</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="card">
+        <div class="stickyBar">
+          <div>
+            <div class="k">Supporting verses</div>
+            <div class="muted small">Compact list for scanning.</div>
+          </div>
+          <div style="min-width:220px;">
+            <div class="label">Filter by tag</div>
+            <select id="tagFilter">
+              <option value="ALL">All</option>
+              ${tags.map(t => `<option value="${esc(t)}" ${t === state.verseTagFilter ? "selected" : ""}>${esc(t)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        
+            <div class="list" id="verseList">
+  ${verses.length === 0 ? `<div class="muted">No verses yet.</div>` : verses.map(v => `
+    <div class="item" id="verse-${esc(v.id)}">
+      <details>
+        <summary>
+          <span class="k">${esc(v.reference)}</span>
+          ${(v.tags && v.tags.length) ? `<span class="muted"> · ${esc(v.tags.join(", "))}</span>` : ``}
+        </summary>
+
+        <div class="divider"></div>
+
+        ${(v.tags && v.tags.length)
+          ? `<div>${(v.tags || []).map(t => `<span class="pill">${esc(t)}</span>`).join("")}</div>`
+          : ``}
+
+        ${v.note
+          ? `<div class="muted" style="white-space:pre-wrap; margin-top:8px;">${esc(v.note)}</div>`
+          : `<div class="muted" style="margin-top:8px;">No notes.</div>`}
+
+        <div class="actions" style="margin-top:10px;">
+          <button class="danger" data-del-verse="${v.id}">Delete</button>
+        </div>
+      </details>
+    </div>
+  `).join("")}
+</div>
+        <details style="margin-top:12px;">
+          <summary>Add a verse</summary>
+          <div style="margin-top:10px;">
+            <div class="row two">
+              <div>
+                <div class="label">Reference</div>
+                <input id="vRef" placeholder="John 17:3" />
+              </div>
+              <div>
+                <div class="label">Tags (comma separated)</div>
+                <input id="vTags" placeholder="Father, One God" />
+              </div>
+            </div>
+            <div style="margin-top:10px;">
+              <div class="label">Notes</div>
+              <textarea id="vNote" placeholder="Notes..."></textarea>
+            </div>
+            <div class="actions">
+              <button class="primary" id="btnAddVerse">Add</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="card">
+        <div class="stickyBar">
+          <div>
+            <div class="k">Objection Responses</div>
+            <div class="muted small">Each objection verse has its own response.</div>
+          </div>
+          <div class="muted small">${objections.length} items</div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="list" id="objList">
+  ${objections.length === 0 ? `<div class="muted">No objections yet.</div>` : objections.map(o => `
+    <div class="item" id="obj-${esc(o.id)}">
+      <details>
+        <summary>
+          <span class="k">${esc(o.reference)}</span>
+          ${o.note ? `<span class="muted"> · ${esc(o.note)}</span>` : ``}
+        </summary>
+
+        <div class="divider"></div>
+
+        <div style="white-space:pre-wrap;">
+          ${esc(o.response || "") || `<span class="muted">No objection response yet.</span>`}
+        </div>
+
+        <details style="margin-top:12px;">
+          <summary>Edit objection response</summary>
+
+          <div class="row two" style="margin-top:10px;">
+            <div>
+              <div class="label">Objection verse</div>
+              <input data-edit-oref="${esc(o.id)}" value="${esc(o.reference)}" />
+            </div>
+            <div>
+              <div class="label">Note (optional)</div>
+              <input data-edit-onote="${esc(o.id)}" value="${esc(o.note || "")}" />
+            </div>
+          </div>
+
+          <div style="margin-top:10px;">
+            <div class="label">Objection response</div>
+            <textarea data-edit-oresp="${esc(o.id)}">${esc(o.response || "")}</textarea>
+          </div>
+
+          <div class="actions">
+            <button class="primary" data-save-obj="${esc(o.id)}">Save</button>
+            <button class="danger" data-del-obj="${esc(o.id)}">Delete</button>
+          </div>
+        </details>
+      </details>
+    </div>
+  `).join("")}
+</div>        </div>
+
+        <details style="margin-top:12px;">
+          <summary>Add an objection</summary>
+          <div style="margin-top:10px;">
+            <div class="row two">
+              <div>
+                <div class="label">Objection verse</div>
+                <input id="oRef" placeholder="John 1:1" />
+              </div>
+              <div>
+                <div class="label">Note (optional)</div>
+                <input id="oNote" placeholder="Short reminder" />
+              </div>
+            </div>
+            <div style="margin-top:10px;">
+              <div class="label">Response</div>
+              <textarea id="oResp" placeholder="Response..."></textarea>
+            </div>
+            <div class="actions">
+              <button class="primary" id="btnAddObj">Add</button>
+            </div>
+          </div>
+        </details>
+      </div>
+    `;
+
+    el.querySelector("#btnBackToTopics").addEventListener("click", () => {
+      renderTopics();
+      show("viewTopics");
+    });
+
+    el.querySelector("#btnGoSearch").addEventListener("click", () => {
+      renderSearch();
+      show("viewSearch");
+    });
+
+    el.querySelector("#btnGoBackup").addEventListener("click", () => {
+      renderBackup();
+      show("viewBackup");
+    });
+
+    el.querySelector("#btnSaveClaim").addEventListener("click", () => {
+      topic.claim = (el.querySelector("#claimBox").value || "").trim();
+      topic.updatedAt = nowISO();
+      save();
+      renderHome();
+      showToast("Claim saved.");
+      renderTopicOverview(topicId);
+    });
+
+    el.querySelector("#tagFilter").addEventListener("change", (ev) => {
+      state.verseTagFilter = ev.target.value;
+      renderTopicOverview(topicId);
+    });
+
+    // Verse delete
+    el.querySelector("#verseList").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+      const delId = btn.getAttribute("data-del-verse");
+      if (!delId) return;
+
+      const v = state.data.verses.find(x => x.id === delId);
+      if (!v) return;
+
+      state.data.verses = state.data.verses.filter(x => x.id !== delId);
+      save();
+      renderHome();
+
+      state.undo = {
+        label: "Undo delete verse",
+        expiresAt: Date.now() + 8000,
+        restoreFn: () => {
+          state.data.verses.push(v);
+          save();
+          renderTopicOverview(topicId);
+          renderHome();
+          showToast("Restored.");
+        }
+      };
+
+      renderTopicOverview(topicId);
+      showToast("Verse deleted.", [{
+        label: "Undo",
+        onClick: () => {
+          if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
+          state.undo = null;
+        }
+      }]);
+    });
+
+    // Add verse
+    el.querySelector("#btnAddVerse").addEventListener("click", () => {
+      const ref = (el.querySelector("#vRef").value || "").trim();
+      if (!ref) { showToast("Verse reference required."); return; }
+      const note = (el.querySelector("#vNote").value || "").trim();
+      const tagsRaw = (el.querySelector("#vTags").value || "");
+      const tagsArr = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
+
+      const v = { id: uid(), topicId, reference: ref, note, tags: tagsArr, createdAt: nowISO(), updatedAt: nowISO() };
+      state.data.verses.push(v);
+      topic.updatedAt = nowISO();
+      save();
+      renderHome();
+      showToast("Verse added.");
+      renderTopicOverview(topicId);
+    });
+
+    // Add objection
+    el.querySelector("#btnAddObj").addEventListener("click", () => {
+      const ref = (el.querySelector("#oRef").value || "").trim();
+      if (!ref) { showToast("Objection verse required."); return; }
+      const note = (el.querySelector("#oNote").value || "").trim();
+      const response = (el.querySelector("#oResp").value || "").trim();
+
+      const o = { id: uid(), topicId, reference: ref, note, response, createdAt: nowISO(), updatedAt: nowISO() };
+      state.data.objections.push(o);
+      topic.updatedAt = nowISO();
+      save();
+      renderHome();
+      showToast("Objection added.");
+      renderTopicOverview(topicId);
+    });
+
+    // Save objection edits + delete objection
+    el.querySelector("#objList").addEventListener("click", (ev) => {
+      const saveBtn = ev.target.closest("button[data-save-obj]");
+      const delBtn = ev.target.closest("button[data-del-obj]");
+
+      if (saveBtn) {
+        const id = saveBtn.getAttribute("data-save-obj");
+        const o = state.data.objections.find(x => x.id === id);
+        if (!o) return;
+
+        const r = el.querySelector(`input[data-edit-oref="${CSS.escape(id)}"]`);
+        const n = el.querySelector(`input[data-edit-onote="${CSS.escape(id)}"]`);
+        const t = el.querySelector(`textarea[data-edit-oresp="${CSS.escape(id)}"]`);
+
+        o.reference = (r?.value || "").trim();
+        o.note = (n?.value || "").trim();
+        o.response = (t?.value || "").trim();
+        o.updatedAt = nowISO();
+        topic.updatedAt = nowISO();
+        save();
+        renderHome();
+        showToast("Response saved.");
+        renderTopicOverview(topicId);
+        return;
+      }
+
+      if (delBtn) {
+        const id = delBtn.getAttribute("data-del-obj");
+        const o = state.data.objections.find(x => x.id === id);
+        if (!o) return;
+
+        state.data.objections = state.data.objections.filter(x => x.id !== id);
+        save();
+        renderHome();
+
+        state.undo = {
+          label: "Undo delete objection",
+          expiresAt: Date.now() + 8000,
+          restoreFn: () => {
+            state.data.objections.push(o);
+            save();
+            renderTopicOverview(topicId);
+            renderHome();
+            showToast("Restored.");
+          }
+        };
+
+        renderTopicOverview(topicId);
+        showToast("Objection deleted.", [{
+          label: "Undo",
+          onClick: () => {
+            if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
+            state.undo = null;
+          }
+        }]);
+      }
+    });
+  }
+
+  function highlightSnippet(text, q) {
+    if (!q) return esc(text);
+    const safe = String(text ?? "");
+    const idx = safe.toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return esc(safe);
+    const pre = safe.slice(0, idx);
+    const mid = safe.slice(idx, idx + q.length);
+    const post = safe.slice(idx + q.length);
+    return `${esc(pre)}<span class="searchHit">${esc(mid)}</span>${esc(post)}`;
+  }
+
+  function renderSearch() {
+    const el = document.getElementById("viewSearch");
+
+    el.innerHTML = `
+      <div class="stickyBar">
+        <div>
+          <div class="muted">Find responses fast</div>
+          <div class="titleBig">Search</div>
+        </div>
+        <div class="actions">
+          <button id="btnSearchToTopics">Topics</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div>
+        <div class="label">Search (responses)</div>
+        <input id="searchBox" placeholder='Try: "John 1:1" or "qualitative" or "only true God"' />
+        <div class="muted small" style="margin-top:6px;">
+          Searches objection verse, note, and response text across all topics.
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="list" id="results"></div>
+    `;
+
+    el.querySelector("#btnSearchToTopics").addEventListener("click", () => {
+      renderTopics();
+      show("viewTopics");
+    });
+
+    const input = el.querySelector("#searchBox");
+    const results = el.querySelector("#results");
+
+    function run() {
+      const q = (input.value || "").trim();
+      if (!q) {
+        results.innerHTML = `<div class="muted">Type something to search.</div>`;
+        return;
+      }
+
+      const ql = q.toLowerCase();
+
+      const hits = [];
+      for (const o of state.data.objections) {
+        const topic = getTopic(o.topicId);
+        if (!topic) continue;
+
+        const hay = [
+          o.reference || "",
+          o.note || "",
+          o.response || ""
+        ].join("\n").toLowerCase();
+
+        if (hay.includes(ql)) {
+          const snippetBase = (o.response || o.note || "").trim() || "(no response text)";
+          const snippet = snippetBase.length > 240 ? snippetBase.slice(0, 240) + "..." : snippetBase;
+
+          hits.push({
+            topicId: o.topicId,
+            topicTitle: topic.title || "(untitled)",
+            objectionId: o.id,
+            objectionRef: o.reference || "",
+            objectionNote: o.note || "",
+            snippet: snippet,
+            updatedAt: o.updatedAt || ""
+          });
+        }
+      }
+
+      hits.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+
+      if (hits.length === 0) {
+        results.innerHTML = `<div class="muted">No matches.</div>`;
+        return;
+      }
+
+      results.innerHTML = hits.map(h => `
+        <div class="item">
+          <div class="muted small">${esc(h.topicTitle)}</div>
+          <div class="k">${esc(h.objectionRef)}</div>
+          ${h.objectionNote ? `<div class="muted">${highlightSnippet(h.objectionNote, q)}</div>` : ``}
+          <div style="margin-top:8px; white-space:pre-wrap;">${highlightSnippet(h.snippet, q)}</div>
+          <div class="actions" style="margin-top:10px;">
+            <button data-jump-topic="${esc(h.topicId)}" data-jump-obj="${esc(h.objectionId)}">Open response</button>
+          </div>
+        </div>
+      `).join("");
+
+      results.querySelectorAll("button[data-jump-topic]").forEach(btn => {
+        btn.onclick = () => {
+          const tid = btn.getAttribute("data-jump-topic");
+          const oid = btn.getAttribute("data-jump-obj");
+          openTopic(tid, oid);
+        };
+      });
+    }
+
+    input.addEventListener("input", run);
+    setTimeout(() => { input.focus(); }, 50);
+    run();
+  }
+
+  function renderBackup() {
+    const el = document.getElementById("viewBackup");
+    const exportJson = JSON.stringify(state.data, null, 2);
+
+    el.innerHTML = `
+      <div class="stickyBar">
+        <div>
+          <div class="muted">Safety</div>
+          <div class="titleBig">Backup</div>
+        </div>
+        <div class="actions">
+          <button id="btnBackupToTopics">Topics</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="card">
+        <div class="k">Export</div>
+        <div class="muted small">Copy this into Notes.</div>
+        <textarea id="exportBox" readonly>${esc(exportJson)}</textarea>
+        <div class="actions">
+          <button id="btnSelectExport">Select All</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="k">Import</div>
+        <div class="muted small">Paste a backup JSON here to restore.</div>
+        <textarea id="importBox" placeholder="Paste backup JSON..."></textarea>
+        <div class="actions">
+          <button class="primary" id="btnImport">Import</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="k">Reset</div>
+        <div class="muted small">Type RESET to clear everything on this device.</div>
+        <div class="row two">
+          <input id="resetBox" placeholder="Type RESET" />
+          <button class="danger" id="btnReset">Reset</button>
+        </div>
+      </div>
+    `;
+
+    el.querySelector("#btnBackupToTopics").addEventListener("click", () => {
+      renderTopics();
+      show("viewTopics");
+    });
+
+    el.querySelector("#btnSelectExport").addEventListener("click", () => {
+      const box = el.querySelector("#exportBox");
+      box.focus();
+      box.select();
+      showToast("Selected. Tap Copy.");
+    });
+
+    el.querySelector("#btnImport").addEventListener("click", () => {
+      const raw = (el.querySelector("#importBox").value || "").trim();
+      if (!raw) { showToast("Paste a backup first."); return; }
+      const parsed = parseJSON(raw);
+      if (!parsed || !Array.isArray(parsed.topics) || !Array.isArray(parsed.verses) || !Array.isArray(parsed.objections)) {
+        showToast("Invalid backup format.");
+        return;
+      }
+      state.data = parsed;
+      save();
+      state.currentTopicId = null;
+      state.currentFocusObjectionId = null;
+      state.verseTagFilter = "ALL";
+      renderHome();
+      renderTopics();
+      showToast("Imported.");
+      show("viewTopics");
+    });
+
+    el.querySelector("#btnReset").addEventListener("click", () => {
+      const val = (el.querySelector("#resetBox").value || "").trim();
+      if (val !== "RESET") {
+        showToast('Type RESET to confirm.');
+        return;
+      }
+      state.data = defaultData();
+      save();
+      state.currentTopicId = null;
+      state.currentFocusObjectionId = null;
+      state.verseTagFilter = "ALL";
+      renderHome();
+      renderTopics();
+      showToast("Reset complete.");
+      show("viewHome");
+    });
+  }
+
+  function wireNav() {
+    document.getElementById("navHome").addEventListener("click", () => { renderHome(); show("viewHome"); });
+    document.getElementById("navTopics").addEventListener("click", () => { renderTopics(); show("viewTopics"); });
+    document.getElementById("navSearch").addEventListener("click", () => { renderSearch(); show("viewSearch"); });
+    document.getElementById("navBackup").addEventListener("click", () => { renderBackup(); show("viewBackup"); });
+  }
+
+  function init() {
+    state.data = load();
+    wireNav();
+    renderHome();
+    show("viewHome");
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
