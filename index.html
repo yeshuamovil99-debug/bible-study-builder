@@ -81,22 +81,153 @@
   "use strict";
 
   const STORAGE_KEY = "bible_study_builder_v1_clean";
-
+// Starter data used ONLY when a device has no saved data yet.
+// Replace the JSON below with YOUR exported backup when ready.
+const SEED_DATA = {
+  "version": 1,
+  "topics": [],
+  "verses": [],
+  "objections": []
+};
   const state = {
-    data: null,
-    currentTopicId: null,
-    currentFocusObjectionId: null,
-    verseTagFilter: "ALL",
-    undo: null,           // { label, restoreFn, expiresAt }
-    toastTimer: null
-  };
+  data: null,
+  currentTopicId: null,
+  currentFocusObjectionId: null,
+  currentFocusVerseId: null,
+  verseTagFilter: "ALL",
+  undo: null,
+  toastTimer: null
+};
+const _debounceTimers = {};
 
-  function uid() {
+function debounce(key, ms, fn) {
+  clearTimeout(_debounceTimers[key]);
+  _debounceTimers[key] = setTimeout(fn, ms);
+}
+// Bible book order (Genesis -> Revelation)
+const BOOK_ORDER = [
+  "genesis","exodus","leviticus","numbers","deuteronomy",
+  "joshua","judges","ruth","1 samuel","2 samuel","1 kings","2 kings",
+  "1 chronicles","2 chronicles","ezra","nehemiah","esther","job","psalms",
+  "proverbs","ecclesiastes","song of solomon","isaiah","jeremiah","lamentations",
+  "ezekiel","daniel","hosea","joel","amos","obadiah","jonah","micah","nahum",
+  "habakkuk","zephaniah","haggai","zechariah","malachi",
+  "matthew","mark","luke","john","acts","romans","1 corinthians","2 corinthians",
+  "galatians","ephesians","philippians","colossians","1 thessalonians","2 thessalonians",
+  "1 timothy","2 timothy","titus","philemon","hebrews","james","1 peter","2 peter",
+  "1 john","2 john","3 john","jude","revelation"
+];
+
+const BOOK_INDEX = (() => {
+  const m = {};
+  BOOK_ORDER.forEach((b, i) => { m[b] = i; });
+
+  // Common abbreviations and variants
+  const add = (key, full) => { m[key] = m[full]; };
+
+  add("psalm", "psalms");
+  add("ps", "psalms");
+
+  add("song of songs", "song of solomon");
+  add("song", "song of solomon");
+  add("sos", "song of solomon");
+
+  add("1 sam", "1 samuel"); add("2 sam", "2 samuel");
+  add("1 ki", "1 kings"); add("2 ki", "2 kings");
+  add("1 kgs", "1 kings"); add("2 kgs", "2 kings");
+  add("1 chr", "1 chronicles"); add("2 chr", "2 chronicles");
+
+  add("matt", "matthew");
+  add("mk", "mark");
+  add("lk", "luke");
+  add("jn", "john");
+  add("rev", "revelation");
+  add("rom", "romans");
+
+  add("1 cor", "1 corinthians"); add("2 cor", "2 corinthians");
+  add("1 corinth", "1 corinthians"); add("2 corinth", "2 corinthians");
+
+  add("1 thess", "1 thessalonians"); add("2 thess", "2 thessalonians");
+  add("1 tim", "1 timothy"); add("2 tim", "2 timothy");
+  add("1 pet", "1 peter"); add("2 pet", "2 peter");
+  add("1 jn", "1 john"); add("2 jn", "2 john"); add("3 jn", "3 john");
+
+  return m;
+})();
+
+function normalizeBookName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replaceAll(".", "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseReference(ref) {
+  const raw = String(ref || "").trim();
+  if (!raw) return { bookIdx: 999, chapter: 0, verse: 0, raw };
+
+  // We split using the LAST space, so "1 Corinthians 13:4" works.
+  const lastSpace = raw.lastIndexOf(" ");
+  if (lastSpace === -1) {
+    const bookKey = normalizeBookName(raw);
+    const bookIdx = (BOOK_INDEX[bookKey] ?? 999);
+    return { bookIdx, chapter: 0, verse: 0, raw };
+  }
+
+  const bookPart = raw.slice(0, lastSpace).trim();   // "1 Corinthians"
+  const cvPart = raw.slice(lastSpace + 1).trim();    // "13:4" or "13" or "13:4-7"
+
+  // If the last chunk is not a chapter number, treat whole thing as book name
+  const m = cvPart.match(/^(\d+)(?::(\d+))?/);
+  if (!m) {
+    const bookKey = normalizeBookName(raw);
+    const bookIdx = (BOOK_INDEX[bookKey] ?? 999);
+    return { bookIdx, chapter: 0, verse: 0, raw };
+  }
+
+  const chapter = parseInt(m[1], 10);
+  const verse = m[2] ? parseInt(m[2], 10) : 0;
+
+  const bookKey = normalizeBookName(bookPart);
+  const bookIdx = (BOOK_INDEX[bookKey] ?? 999);
+
+  return { bookIdx, chapter, verse, raw };
+}
+
+function bibleRefCompare(aRef, bRef) {
+  const a = parseReference(aRef);
+  const b = parseReference(bRef);
+
+  if (a.bookIdx !== b.bookIdx) return a.bookIdx - b.bookIdx;
+  if (a.chapter !== b.chapter) return a.chapter - b.chapter;
+  if (a.verse !== b.verse) return a.verse - b.verse;
+
+  // fallback
+  return a.raw.localeCompare(b.raw);
+}
+    function uid() {
     return Date.now().toString(16) + Math.random().toString(16).slice(2);
   }
 
   function nowISO() { return new Date().toISOString(); }
+function bibleApiUrl(ref) {
+  // Example: "John 17:3" -> https://bible-api.com/John%2017:3?translation=web
+  const safe = encodeURIComponent(String(ref || "").trim());
+  return `https://bible-api.com/${safe}?translation=web`;
+}
 
+async function fetchVerseText(ref) {
+  const url = bibleApiUrl(ref);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Fetch failed");
+  const data = await res.json();
+
+  // bible-api typically returns: { text: "...", reference: "...", translation_name: "World English Bible", ... }
+  const text = (data.text || "").trim();
+  const translation = (data.translation_name || "WEB").trim();
+  return { text, translation };
+}
   function esc(s) {
     return String(s ?? "")
       .replaceAll("&", "&amp;")
@@ -115,12 +246,21 @@
   }
 
   function load() {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultData();
-    const parsed = parseJSON(raw);
-    if (!parsed || !Array.isArray(parsed.topics) || !Array.isArray(parsed.verses) || !Array.isArray(parsed.objections)) return defaultData();
-    return parsed;
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    // First-time user on this device
+    if (SEED_DATA && Array.isArray(SEED_DATA.topics) && Array.isArray(SEED_DATA.verses) && Array.isArray(SEED_DATA.objections)) {
+      return SEED_DATA;
+    }
+    return defaultData();
   }
+
+  const parsed = parseJSON(raw);
+  if (!parsed || !Array.isArray(parsed.topics) || !Array.isArray(parsed.verses) || !Array.isArray(parsed.objections)) {
+    return defaultData();
+  }
+  return parsed;
+}
 
   function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
@@ -163,6 +303,7 @@
         btn.onclick = a.onClick;
         act.appendChild(btn);
       }
+      
     }
 
     toast.style.display = "block";
@@ -352,21 +493,30 @@
     });
   }
 
-  function openTopic(topicId, focusObjectionId) {
-    state.currentTopicId = topicId;
-    state.currentFocusObjectionId = focusObjectionId || null;
-    state.verseTagFilter = "ALL";
-    renderTopicOverview(topicId);
-    show("viewTopicOverview");
+  function openTopic(topicId, focusObjectionId, focusVerseId) {
+  state.currentTopicId = topicId;
+  state.currentFocusObjectionId = focusObjectionId || null;
+  state.currentFocusVerseId = focusVerseId || null;
+  state.verseTagFilter = "ALL";
+  renderTopicOverview(topicId);
+  show("viewTopicOverview");
 
-    if (state.currentFocusObjectionId) {
-      setTimeout(() => {
-        const el = document.getElementById("obj-" + state.currentFocusObjectionId);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 50);
-    }
+  // Jump to objection if provided
+  if (state.currentFocusObjectionId) {
+    setTimeout(() => {
+      const el = document.getElementById("obj-" + state.currentFocusObjectionId);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
+  // Jump to supporting verse if provided
+  if (state.currentFocusVerseId) {
+    setTimeout(() => {
+      const el = document.getElementById("verse-" + state.currentFocusVerseId);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+}
   function renderTopicOverview(topicId) {
     const el = document.getElementById("viewTopicOverview");
     const topic = getTopic(topicId);
@@ -379,8 +529,7 @@
 
     let verses = state.data.verses.filter(v => v.topicId === topicId);
     if (state.verseTagFilter !== "ALL") verses = verses.filter(v => (v.tags || []).includes(state.verseTagFilter));
-    verses.sort((a, b) => (a.reference || "").localeCompare(b.reference || ""));
-
+    verses.sort((a, b) => bibleRefCompare(a.reference, b.reference));
     const objections = state.data.objections
       .filter(o => o.topicId === topicId)
       .slice()
@@ -443,7 +592,7 @@
     <div class="item" id="verse-${esc(v.id)}">
       <details>
         <summary>
-          <span class="k">${esc(v.reference)}</span>
+          <span class="k">${esc(v.reference)} ${v.starred ? "★" : ""}</span>
           ${(v.tags && v.tags.length) ? `<span class="muted"> · ${esc(v.tags.join(", "))}</span>` : ``}
         </summary>
 
@@ -456,10 +605,33 @@
         ${v.note
           ? `<div class="muted" style="white-space:pre-wrap; margin-top:8px;">${esc(v.note)}</div>`
           : `<div class="muted" style="margin-top:8px;">No notes.</div>`}
+          ${v.text
+  ? `<div style="white-space:pre-wrap; margin-top:8px;">${esc(v.text)}</div>
+     <div class="muted small">(${esc(v.translation || "WEB")})</div>`
+  : ``}
 
-        <div class="actions" style="margin-top:10px;">
-          <button class="danger" data-del-verse="${v.id}">Delete</button>
-        </div>
+        <div class="row two" style="margin-top:10px;">
+  <div>
+    <div class="label">Reference</div>
+    <input data-edit-vref="${v.id}" value="${esc(v.reference)}" />
+  </div>
+  <div>
+    <div class="label">Tags</div>
+    <input data-edit-vtags="${v.id}" value="${esc((v.tags || []).join(", "))}" />
+  </div>
+</div>
+
+<div style="margin-top:10px;">
+  <div class="label">Notes</div>
+  <textarea data-edit-vnote="${v.id}">${esc(v.note || "")}</textarea>
+</div>
+
+<div class="actions" style="margin-top:10px;">
+  <button data-star-verse="${v.id}">
+    ${v.starred ? "Unstar" : "Star"}
+  </button>
+  <button class="danger" data-del-verse="${v.id}">Delete</button>
+</div>
       </details>
     </div>
   `).join("")}
@@ -534,7 +706,7 @@
           </div>
 
           <div class="actions">
-            <button class="primary" data-save-obj="${esc(o.id)}">Save</button>
+            
             <button class="danger" data-del-obj="${esc(o.id)}">Delete</button>
           </div>
         </details>
@@ -596,14 +768,54 @@
       state.verseTagFilter = ev.target.value;
       renderTopicOverview(topicId);
     });
+// Verse auto-save (when editing reference/tags/note)
+el.querySelector("#verseList").addEventListener("input", (ev) => {
+  const id =
+    ev.target.getAttribute("data-edit-vref") ||
+    ev.target.getAttribute("data-edit-vtags") ||
+    ev.target.getAttribute("data-edit-vnote");
 
+  if (!id) return;
+
+  const v = state.data.verses.find(x => x.id === id);
+  if (!v) return;
+
+  debounce("verse-" + id, 500, () => {
+    const r = el.querySelector(`[data-edit-vref="${id}"]`);
+    const t = el.querySelector(`[data-edit-vtags="${id}"]`);
+    const n = el.querySelector(`[data-edit-vnote="${id}"]`);
+
+    if (!r || !t || !n) return;
+
+    v.reference = (r.value || "").trim();
+    v.tags = (t.value || "").split(",").map(x => x.trim()).filter(Boolean);
+    v.note = (n.value || "").trim();
+    v.updatedAt = nowISO();
+
+    save();
+    showToast("Verse saved");
+  });
+});
     // Verse delete
     el.querySelector("#verseList").addEventListener("click", (ev) => {
       const btn = ev.target.closest("button");
       if (!btn) return;
-      const delId = btn.getAttribute("data-del-verse");
-      if (!delId) return;
+      const starId = btn.getAttribute("data-star-verse");
+if (starId) {
+  const v = state.data.verses.find(x => x.id === starId);
+  if (!v) return;
 
+  v.starred = !v.starred;
+  v.updatedAt = nowISO();
+  save();
+
+  showToast(v.starred ? "Starred" : "Unstarred");
+  renderTopicOverview(topicId);
+  return;
+}
+
+const delId = btn.getAttribute("data-del-verse");
+if (!delId) return;
       const v = state.data.verses.find(x => x.id === delId);
       if (!v) return;
 
@@ -634,21 +846,48 @@
     });
 
     // Add verse
-    el.querySelector("#btnAddVerse").addEventListener("click", () => {
+    el.querySelector("#btnAddVerse").addEventListener("click", async () => {
       const ref = (el.querySelector("#vRef").value || "").trim();
       if (!ref) { showToast("Verse reference required."); return; }
       const note = (el.querySelector("#vNote").value || "").trim();
       const tagsRaw = (el.querySelector("#vTags").value || "");
       const tagsArr = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
 
-      const v = { id: uid(), topicId, reference: ref, note, tags: tagsArr, createdAt: nowISO(), updatedAt: nowISO() };
-      state.data.verses.push(v);
-      topic.updatedAt = nowISO();
-      save();
-      renderHome();
-      showToast("Verse added.");
-      renderTopicOverview(topicId);
-    });
+      const v = {
+  id: uid(),
+  topicId,
+  reference: ref,
+  note,
+  tags: tagsArr,
+  starred: false,
+  text: "",
+  translation: "",
+  createdAt: nowISO(),
+  updatedAt: nowISO()
+};
+
+// IMPORTANT: you forgot this earlier, so the verse never actually got added.
+state.data.verses.push(v);
+topic.updatedAt = nowISO();
+save();
+renderHome();
+showToast("Verse added. Fetching text...");
+
+// Try to fetch verse text (only works when online)
+try {
+  const got = await fetchVerseText(ref);
+  v.text = got.text;
+  v.translation = got.translation;
+  v.updatedAt = nowISO();
+  save();
+  showToast("Verse text added.");
+} catch (e) {
+  // No internet or not found
+  showToast("Added, but could not fetch verse text.");
+}
+
+renderTopicOverview(topicId);
+});
 
     // Add objection
     el.querySelector("#btnAddObj").addEventListener("click", () => {
@@ -667,62 +906,39 @@
     });
 
     // Save objection edits + delete objection
-    el.querySelector("#objList").addEventListener("click", (ev) => {
-      const saveBtn = ev.target.closest("button[data-save-obj]");
-      const delBtn = ev.target.closest("button[data-del-obj]");
+   el.querySelector("#objList").addEventListener("click", (ev) => {
+  const delBtn = ev.target.closest('button[data-del-obj]');
+  if (!delBtn) return;
 
-      if (saveBtn) {
-        const id = saveBtn.getAttribute("data-save-obj");
-        const o = state.data.objections.find(x => x.id === id);
-        if (!o) return;
+  const id = delBtn.getAttribute("data-del-obj");
+  const o = state.data.objections.find(x => x.id === id);
+  if (!o) return;
 
-        const r = el.querySelector(`input[data-edit-oref="${CSS.escape(id)}"]`);
-        const n = el.querySelector(`input[data-edit-onote="${CSS.escape(id)}"]`);
-        const t = el.querySelector(`textarea[data-edit-oresp="${CSS.escape(id)}"]`);
+  state.data.objections = state.data.objections.filter(x => x.id !== id);
+  save();
+  renderHome();
 
-        o.reference = (r?.value || "").trim();
-        o.note = (n?.value || "").trim();
-        o.response = (t?.value || "").trim();
-        o.updatedAt = nowISO();
-        topic.updatedAt = nowISO();
-        save();
-        renderHome();
-        showToast("Response saved.");
-        renderTopicOverview(topicId);
-        return;
-      }
+  state.undo = {
+    label: "Undo delete objection",
+    expiresAt: Date.now() + 8000,
+    restoreFn: () => {
+      state.data.objections.push(o);
+      save();
+      renderTopicOverview(topicId);
+      renderHome();
+      showToast("Restored.");
+    }
+  };
 
-      if (delBtn) {
-        const id = delBtn.getAttribute("data-del-obj");
-        const o = state.data.objections.find(x => x.id === id);
-        if (!o) return;
-
-        state.data.objections = state.data.objections.filter(x => x.id !== id);
-        save();
-        renderHome();
-
-        state.undo = {
-          label: "Undo delete objection",
-          expiresAt: Date.now() + 8000,
-          restoreFn: () => {
-            state.data.objections.push(o);
-            save();
-            renderTopicOverview(topicId);
-            renderHome();
-            showToast("Restored.");
-          }
-        };
-
-        renderTopicOverview(topicId);
-        showToast("Objection deleted.", [{
-          label: "Undo",
-          onClick: () => {
-            if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
-            state.undo = null;
-          }
-        }]);
-      }
-    });
+  renderTopicOverview(topicId);
+  showToast("Objection deleted.", [{
+    label: "Undo",
+    onClick: () => {
+      if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
+      state.undo = null;
+    }
+  }]);
+});
   }
 
   function highlightSnippet(text, q) {
@@ -783,32 +999,62 @@
       const ql = q.toLowerCase();
 
       const hits = [];
-      for (const o of state.data.objections) {
-        const topic = getTopic(o.topicId);
-        if (!topic) continue;
 
-        const hay = [
-          o.reference || "",
-          o.note || "",
-          o.response || ""
-        ].join("\n").toLowerCase();
+// 1) Search objections (existing behavior)
+for (const o of state.data.objections) {
+  const topic = getTopic(o.topicId);
+  if (!topic) continue;
 
-        if (hay.includes(ql)) {
-          const snippetBase = (o.response || o.note || "").trim() || "(no response text)";
-          const snippet = snippetBase.length > 240 ? snippetBase.slice(0, 240) + "..." : snippetBase;
+  const hay = [
+    o.reference || "",
+    o.note || "",
+    o.response || ""
+  ].join("\n").toLowerCase();
 
-          hits.push({
-            topicId: o.topicId,
-            topicTitle: topic.title || "(untitled)",
-            objectionId: o.id,
-            objectionRef: o.reference || "",
-            objectionNote: o.note || "",
-            snippet: snippet,
-            updatedAt: o.updatedAt || ""
-          });
-        }
-      }
+  if (hay.includes(ql)) {
+    const snippetBase = (o.response || o.note || "").trim() || "(no response text)";
+    const snippet = snippetBase.length > 240 ? snippetBase.slice(0, 240) + "..." : snippetBase;
 
+    hits.push({
+      kind: "objection",
+      topicId: o.topicId,
+      topicTitle: topic.title || "(untitled)",
+      itemId: o.id,
+      ref: o.reference || "",
+      note: o.note || "",
+      snippet: snippet,
+      updatedAt: o.updatedAt || ""
+    });
+  }
+}
+
+// 2) Search supporting verses (NEW)
+for (const v of state.data.verses) {
+  const topic = getTopic(v.topicId);
+  if (!topic) continue;
+
+  const hay = [
+    v.reference || "",
+    (v.tags || []).join(", "),
+    v.note || ""
+  ].join("\n").toLowerCase();
+
+  if (hay.includes(ql)) {
+    const snippetBase = (v.note || "").trim() || "(no notes)";
+    const snippet = snippetBase.length > 240 ? snippetBase.slice(0, 240) + "..." : snippetBase;
+
+    hits.push({
+      kind: "verse",
+      topicId: v.topicId,
+      topicTitle: topic.title || "(untitled)",
+      itemId: v.id,
+      ref: v.reference || "",
+      note: (v.tags || []).join(", "),
+      snippet: snippet,
+      updatedAt: v.updatedAt || ""
+    });
+  }
+}
       hits.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 
       if (hits.length === 0) {
@@ -819,22 +1065,31 @@
       results.innerHTML = hits.map(h => `
         <div class="item">
           <div class="muted small">${esc(h.topicTitle)}</div>
-          <div class="k">${esc(h.objectionRef)}</div>
-          ${h.objectionNote ? `<div class="muted">${highlightSnippet(h.objectionNote, q)}</div>` : ``}
+          <div class="k">${esc(h.ref)} ${h.kind === "verse" ? "<span class='muted small'>(verse)</span>" : "<span class='muted small'>(objection)</span>"}</div>
+${h.note ? `<div class="muted">${highlightSnippet(h.note, q)}</div>` : ``}
           <div style="margin-top:8px; white-space:pre-wrap;">${highlightSnippet(h.snippet, q)}</div>
           <div class="actions" style="margin-top:10px;">
-            <button data-jump-topic="${esc(h.topicId)}" data-jump-obj="${esc(h.objectionId)}">Open response</button>
+            <button
+  data-jump-topic="${esc(h.topicId)}"
+  data-jump-kind="${esc(h.kind)}"
+  data-jump-id="${esc(h.itemId)}"
+>
+  Open
+</button>
           </div>
         </div>
       `).join("");
 
       results.querySelectorAll("button[data-jump-topic]").forEach(btn => {
-        btn.onclick = () => {
-          const tid = btn.getAttribute("data-jump-topic");
-          const oid = btn.getAttribute("data-jump-obj");
-          openTopic(tid, oid);
-        };
-      });
+  btn.onclick = () => {
+    const tid = btn.getAttribute("data-jump-topic");
+    const kind = btn.getAttribute("data-jump-kind");
+    const id = btn.getAttribute("data-jump-id");
+
+    if (kind === "objection") openTopic(tid, id, null);
+    if (kind === "verse") openTopic(tid, null, id);
+  };
+});
     }
 
     input.addEventListener("input", run);
