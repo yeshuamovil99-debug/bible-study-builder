@@ -602,14 +602,17 @@ async function fetchVerseText(ref) {
           ? `<div>${(v.tags || []).map(t => `<span class="pill">${esc(t)}</span>`).join("")}</div>`
           : ``}
 
-        ${v.note
-          ? `<div class="muted" style="white-space:pre-wrap; margin-top:8px;">${esc(v.note)}</div>`
-          : `<div class="muted" style="margin-top:8px;">No notes.</div>`}
-          ${v.text
-  ? `<div style="white-space:pre-wrap; margin-top:8px;">${esc(v.text)}</div>
-     <div class="muted small">(${esc(v.translation || "WEB")})</div>`
-  : ``}
+        
+${v.note
+  ? `<div id="vnote-preview-${esc(v.id)}" class="muted" style="white-space:pre-wrap; margin-top:8px;">${esc(v.note)}</div>`
+  : `<div id="vnote-preview-${esc(v.id)}" class="muted" style="margin-top:8px;">No notes.</div>`
+}
 
+${v.text
+  ? `<div style="white-space:pre-wrap; margin-top:8px;">${esc(v.text)}</div>
+     ${v.translation ? `<div class="muted small">(${esc(v.translation)})</div>` : ``}`
+  : ``
+}
         <div class="row two" style="margin-top:10px;">
   <div>
     <div class="label">Reference</div>
@@ -769,6 +772,40 @@ async function fetchVerseText(ref) {
       renderTopicOverview(topicId);
     });
 // Verse auto-save (when editing reference/tags/note)
+// === AUTO-FETCH-ON-REF-EDIT START ===
+function scheduleFetchForVerse(v) {
+  debounce("fetch-verse-" + v.id, 900, async () => {
+    const refNow = (v.reference || "").trim();
+    if (!refNow) return;
+
+    // Show immediate feedback
+    v.text = "Fetching verse text...";
+    v.translation = "";
+    v.updatedAt = nowISO();
+    save();
+
+    // Re-render so the "Fetching..." text appears
+    renderTopicOverview(topicId);
+
+    try {
+      const got = await fetchVerseText(refNow);
+      v.text = (got && got.text) ? got.text : "Verse text was empty from the API.";
+      v.translation = (got && got.translation) ? got.translation : "WEB";
+      v.updatedAt = nowISO();
+      save();
+      renderTopicOverview(topicId);
+      showToast("Verse text updated.");
+    } catch (e) {
+      v.text = "Could not fetch verse text. Check internet or API blocking.";
+      v.translation = "";
+      v.updatedAt = nowISO();
+      save();
+      renderTopicOverview(topicId);
+      showToast("Could not fetch verse text.");
+    }
+  });
+}
+// === AUTO-FETCH-ON-REF-EDIT END ===
 el.querySelector("#verseList").addEventListener("input", (ev) => {
   const id =
     ev.target.getAttribute("data-edit-vref") ||
@@ -794,6 +831,55 @@ el.querySelector("#verseList").addEventListener("input", (ev) => {
 
     save();
     showToast("Verse saved");
+    // Verse auto-save (when editing reference/tags/note)
+el.querySelector("#verseList").addEventListener("input", (ev) => {
+  const id =
+    ev.target.getAttribute("data-edit-vref") ||
+    ev.target.getAttribute("data-edit-vtags") ||
+    ev.target.getAttribute("data-edit-vnote");
+
+  if (!id) return;
+
+  const v = state.data.verses.find(x => x.id === id);
+  if (!v) return;
+
+  // Track whether the user edited the reference field
+  const editedRefId = ev.target.getAttribute("data-edit-vref");
+  const oldRef = (v.reference || "").trim();
+
+  debounce("verse-" + id, 500, () => {
+    const r = el.querySelector(`[data-edit-vref="${id}"]`);
+    const t = el.querySelector(`[data-edit-vtags="${id}"]`);
+    const n = el.querySelector(`[data-edit-vnote="${id}"]`);
+    if (!r || !t || !n) return;
+
+    v.reference = (r.value || "").trim();
+    v.tags = (t.value || "").split(",").map(x => x.trim()).filter(Boolean);
+    v.note = (n.value || "").trim();
+    v.updatedAt = nowISO();
+    save();
+    showToast("Verse saved");
+
+    // Keep your note preview updater here (yours is fine)
+
+    // If reference changed, fetch new verse text
+    const newRef = (v.reference || "").trim();
+    if (editedRefId && newRef && newRef !== oldRef) {
+      scheduleFetchForVerse(v);
+    }
+  });
+});
+    // Update the read-only preview text without re-rendering everything
+const preview = el.querySelector(`#vnote-preview-${id}`);
+if (preview) {
+  if (v.note) {
+    preview.style.whiteSpace = "pre-wrap";
+    preview.textContent = v.note;
+  } else {
+    preview.style.whiteSpace = "normal";
+    preview.textContent = "No notes.";
+  }
+}
   });
 });
     // Verse delete
@@ -846,49 +932,59 @@ if (!delId) return;
     });
 
     // Add verse
-    el.querySelector("#btnAddVerse").addEventListener("click", async () => {
-      const ref = (el.querySelector("#vRef").value || "").trim();
-      if (!ref) { showToast("Verse reference required."); return; }
-      const note = (el.querySelector("#vNote").value || "").trim();
-      const tagsRaw = (el.querySelector("#vTags").value || "");
-      const tagsArr = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
+el.querySelector("#btnAddVerse").addEventListener("click", async () => {
+  const ref = (el.querySelector("#vRef").value || "").trim();
+  if (!ref) { showToast("Verse reference required."); return; }
 
-      const v = {
-  id: uid(),
-  topicId,
-  reference: ref,
-  note,
-  tags: tagsArr,
-  starred: false,
-  text: "",
-  translation: "",
-  createdAt: nowISO(),
-  updatedAt: nowISO()
-};
+  const note = (el.querySelector("#vNote").value || "").trim();
+  const tagsRaw = (el.querySelector("#vTags").value || "");
+  const tagsArr = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
 
-// IMPORTANT: you forgot this earlier, so the verse never actually got added.
-state.data.verses.push(v);
-topic.updatedAt = nowISO();
-save();
-renderHome();
-showToast("Verse added. Fetching text...");
+  // Create verse and show something immediately
+  const v = {
+    id: uid(),
+    topicId,
+    reference: ref,
+    note,
+    tags: tagsArr,
+    starred: false,
+    text: "Fetching verse text...",
+    translation: "",
+    createdAt: nowISO(),
+    updatedAt: nowISO()
+  };
 
-// Try to fetch verse text (only works when online)
-try {
-  const got = await fetchVerseText(ref);
-  v.text = got.text;
-  v.translation = got.translation;
-  v.updatedAt = nowISO();
+  state.data.verses.push(v);
+  topic.updatedAt = nowISO();
   save();
-  showToast("Verse text added.");
-} catch (e) {
-  // No internet or not found
-  showToast("Added, but could not fetch verse text.");
-}
+  renderHome();
+  renderTopicOverview(topicId);
 
-renderTopicOverview(topicId);
+  // Fetch verse text (works only when online and the host allows it)
+  try {
+    const got = await fetchVerseText(ref);
+
+    if (got && got.text) {
+      v.text = got.text;
+      v.translation = got.translation || "WEB";
+    } else {
+      v.text = "Verse added, but verse text was empty from the API.";
+      v.translation = "";
+    }
+
+    v.updatedAt = nowISO();
+    save();
+    renderTopicOverview(topicId);
+    showToast("Verse text added.");
+  } catch (e) {
+    v.text = "Verse added, but could not fetch verse text. (Check internet or API blocking on this site.)";
+    v.translation = "";
+    v.updatedAt = nowISO();
+    save();
+    renderTopicOverview(topicId);
+    showToast("Could not fetch verse text.");
+  }
 });
-
     // Add objection
     el.querySelector("#btnAddObj").addEventListener("click", () => {
       const ref = (el.querySelector("#oRef").value || "").trim();
