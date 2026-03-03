@@ -48,9 +48,44 @@
     .toast button { background:#fff; color:#111; border-color:#fff; }
     .searchHit { background: #fff8c5; padding: 0 2px; border-radius: 4px; }
     .small { font-size: 12px; }
+    
+
+/* === Watermark === */
+.watermark {
+  position: fixed;
+  top: 88%;                 /* LOWER on screen */
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
+
+  opacity: 0.22;            /* clearly visible */
+  animation: watermarkBreath 10s ease-in-out infinite;
+}
+
+.watermark img {
+  width: 1000px;
+  max-width: 95vw;
+  filter: contrast(1.6) saturate(1.4);
+}
+
+/* subtle breathing effect */
+@keyframes watermarkBreath {
+  0%   { opacity: 0.20; transform: translate(-50%, -50%) scale(1); }
+  50%  { opacity: 0.28; transform: translate(-50%, -50%) scale(1.015); }
+  100% { opacity: 0.20; transform: translate(-50%, -50%) scale(1); }
+}
+
+main, header {
+  position: relative;
+  z-index: 1;
+}
   </style>
 </head>
 <body>
+<div class="watermark">
+  <img src="yahweh-hebrew.png" alt="Yahweh">
+</div>
 <header>
   <h1>Bible Study Builder</h1>
   <nav>
@@ -773,18 +808,15 @@ ${v.text
     });
 // Verse auto-save (when editing reference/tags/note)
 // === AUTO-FETCH-ON-REF-EDIT START ===
-function scheduleFetchForVerse(v) {
+function scheduleFetchForVerse(v, topicId) {
   debounce("fetch-verse-" + v.id, 900, async () => {
     const refNow = (v.reference || "").trim();
     if (!refNow) return;
 
-    // Show immediate feedback
     v.text = "Fetching verse text...";
     v.translation = "";
     v.updatedAt = nowISO();
     save();
-
-    // Re-render so the "Fetching..." text appears
     renderTopicOverview(topicId);
 
     try {
@@ -806,6 +838,7 @@ function scheduleFetchForVerse(v) {
   });
 }
 // === AUTO-FETCH-ON-REF-EDIT END ===
+
 el.querySelector("#verseList").addEventListener("input", (ev) => {
   const id =
     ev.target.getAttribute("data-edit-vref") ||
@@ -817,34 +850,7 @@ el.querySelector("#verseList").addEventListener("input", (ev) => {
   const v = state.data.verses.find(x => x.id === id);
   if (!v) return;
 
-  debounce("verse-" + id, 500, () => {
-    const r = el.querySelector(`[data-edit-vref="${id}"]`);
-    const t = el.querySelector(`[data-edit-vtags="${id}"]`);
-    const n = el.querySelector(`[data-edit-vnote="${id}"]`);
-
-    if (!r || !t || !n) return;
-
-    v.reference = (r.value || "").trim();
-    v.tags = (t.value || "").split(",").map(x => x.trim()).filter(Boolean);
-    v.note = (n.value || "").trim();
-    v.updatedAt = nowISO();
-
-    save();
-    showToast("Verse saved");
-    // Verse auto-save (when editing reference/tags/note)
-el.querySelector("#verseList").addEventListener("input", (ev) => {
-  const id =
-    ev.target.getAttribute("data-edit-vref") ||
-    ev.target.getAttribute("data-edit-vtags") ||
-    ev.target.getAttribute("data-edit-vnote");
-
-  if (!id) return;
-
-  const v = state.data.verses.find(x => x.id === id);
-  if (!v) return;
-
-  // Track whether the user edited the reference field
-  const editedRefId = ev.target.getAttribute("data-edit-vref");
+  const editedReferenceField = ev.target.hasAttribute("data-edit-vref");
   const oldRef = (v.reference || "").trim();
 
   debounce("verse-" + id, 500, () => {
@@ -857,79 +863,80 @@ el.querySelector("#verseList").addEventListener("input", (ev) => {
     v.tags = (t.value || "").split(",").map(x => x.trim()).filter(Boolean);
     v.note = (n.value || "").trim();
     v.updatedAt = nowISO();
+
     save();
     showToast("Verse saved");
 
-    // Keep your note preview updater here (yours is fine)
+    // Update the read-only note preview without re-rendering everything
+    const preview = el.querySelector(`#vnote-preview-${id}`);
+    if (preview) {
+      if (v.note) {
+        preview.style.whiteSpace = "pre-wrap";
+        preview.textContent = v.note;
+      } else {
+        preview.style.whiteSpace = "normal";
+        preview.textContent = "No notes.";
+      }
+    }
 
     // If reference changed, fetch new verse text
     const newRef = (v.reference || "").trim();
-    if (editedRefId && newRef && newRef !== oldRef) {
-      scheduleFetchForVerse(v);
+    if (editedReferenceField && newRef && newRef !== oldRef) {
+      scheduleFetchForVerse(v, topicId);
     }
   });
 });
-    // Update the read-only preview text without re-rendering everything
-const preview = el.querySelector(`#vnote-preview-${id}`);
-if (preview) {
-  if (v.note) {
-    preview.style.whiteSpace = "pre-wrap";
-    preview.textContent = v.note;
-  } else {
-    preview.style.whiteSpace = "normal";
-    preview.textContent = "No notes.";
-  }
-}
-  });
-});
     // Verse delete
-    el.querySelector("#verseList").addEventListener("click", (ev) => {
-      const btn = ev.target.closest("button");
-      if (!btn) return;
-      const starId = btn.getAttribute("data-star-verse");
-if (starId) {
-  const v = state.data.verses.find(x => x.id === starId);
+    // Verse delete (and star)
+el.querySelector("#verseList").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+
+  const starId = btn.getAttribute("data-star-verse");
+  if (starId) {
+    const v = state.data.verses.find(x => x.id === starId);
+    if (!v) return;
+
+    v.starred = !v.starred;
+    v.updatedAt = nowISO();
+    save();
+
+    showToast(v.starred ? "Starred" : "Unstarred");
+    renderTopicOverview(topicId);
+    return;
+  }
+
+  const delId = btn.getAttribute("data-del-verse");
+  if (!delId) return;
+
+  const v = state.data.verses.find(x => x.id === delId);
   if (!v) return;
 
-  v.starred = !v.starred;
-  v.updatedAt = nowISO();
+  state.data.verses = state.data.verses.filter(x => x.id !== delId);
   save();
+  renderHome();
 
-  showToast(v.starred ? "Starred" : "Unstarred");
-  renderTopicOverview(topicId);
-  return;
-}
-
-const delId = btn.getAttribute("data-del-verse");
-if (!delId) return;
-      const v = state.data.verses.find(x => x.id === delId);
-      if (!v) return;
-
-      state.data.verses = state.data.verses.filter(x => x.id !== delId);
+  state.undo = {
+    label: "Undo delete verse",
+    expiresAt: Date.now() + 8000,
+    restoreFn: () => {
+      state.data.verses.push(v);
       save();
-      renderHome();
-
-      state.undo = {
-        label: "Undo delete verse",
-        expiresAt: Date.now() + 8000,
-        restoreFn: () => {
-          state.data.verses.push(v);
-          save();
-          renderTopicOverview(topicId);
-          renderHome();
-          showToast("Restored.");
-        }
-      };
-
       renderTopicOverview(topicId);
-      showToast("Verse deleted.", [{
-        label: "Undo",
-        onClick: () => {
-          if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
-          state.undo = null;
-        }
-      }]);
-    });
+      renderHome();
+      showToast("Restored.");
+    }
+  };
+
+  renderTopicOverview(topicId);
+  showToast("Verse deleted.", [{
+    label: "Undo",
+    onClick: () => {
+      if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
+      state.undo = null;
+    }
+  }]);
+});
 
     // Add verse
 el.querySelector("#btnAddVerse").addEventListener("click", async () => {
