@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bible Study">
 <meta name="theme-color" content="#111111">
+<link rel="apple-touch-icon" href="Icon-180.PNG">
   <style>
     :root { --pad: 14px; --radius: 12px; --border:#e6e6ee; --bg:#f6f7fb; --card:#fff; }
     body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: var(--bg); color: #111; }
@@ -85,7 +86,27 @@ main, header {
   position: relative;
   z-index: 1;
 }
-  </style>
+main, header {
+  position: relative;
+  z-index: 1;
+}
+
+/* Tappable cards (no visible button) */
+.tapCard {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.tapCard:active {
+  transform: scale(0.99);
+}
+
+.tapCard:focus {
+  outline: 2px solid #111;
+  outline-offset: 2px;
+}
+</style>
 </head>
 <body>
 <div class="watermark">
@@ -372,167 +393,194 @@ async function fetchVerseText(ref) {
   }
 
   function renderHome() {
-    const el = document.getElementById("viewHome");
-    el.innerHTML = `
-      <div class="stickyBar">
-        <div>
-          <div class="muted">Quick counts</div>
-          <div class="titleBig">Home</div>
-        </div>
+  const el = document.getElementById("viewHome");
+
+  el.innerHTML = `
+    <div class="stickyBar">
+      <div>
+        <div class="muted">Quick counts</div>
+        <div class="titleBig">Home</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="row two">
+      <div class="card tapCard" id="cardTopics" style="margin:0;">
+        <div class="muted">Topics</div>
+        <div style="font-size:22px; font-weight:800;">${state.data.topics.length}</div>
       </div>
 
-      <div class="divider"></div>
+      <div class="card tapCard" id="cardVerses" style="margin:0;">
+        <div class="muted">Supporting verses</div>
+        <div style="font-size:22px; font-weight:800;">${state.data.verses.length}</div>
+      </div>
+    </div>
 
-      <div class="row two">
-        <div class="card" style="margin:0;">
-          <div class="muted">Topics</div>
-          <div style="font-size:22px; font-weight:800;">${state.data.topics.length}</div>
-        </div>
-        <div class="card" style="margin:0;">
-          <div class="muted">Supporting verses</div>
-          <div style="font-size:22px; font-weight:800;">${state.data.verses.length}</div>
-        </div>
+    <div class="row two" style="margin-top:10px;">
+      <div class="card tapCard" id="cardObjections" style="margin:0;">
+        <div class="muted">Objections</div>
+        <div style="font-size:22px; font-weight:800;">${state.data.objections.length}</div>
       </div>
 
-      <div class="row two" style="margin-top:10px;">
-        <div class="card" style="margin:0;">
-          <div class="muted">Objections</div>
-          <div style="font-size:22px; font-weight:800;">${state.data.objections.length}</div>
-        </div>
-        <div class="card" style="margin:0;">
-          <div class="muted">Tip</div>
-          <div>Use Search to find a response instantly (example: "John 1:1").</div>
-        </div>
+      <div class="card tapCard" id="cardSearch" style="margin:0;">
+        <div class="muted">Tip</div>
+        <div>Tap here to open Search instantly.</div>
       </div>
-    `;
+    </div>
+  `;
+
+  document.getElementById("cardTopics").onclick = () => { renderTopics(); show("viewTopics"); };
+  document.getElementById("cardVerses").onclick = () => { renderTopics(); show("viewTopics"); };
+  document.getElementById("cardObjections").onclick = () => { renderTopics(); show("viewTopics"); };
+
+  document.getElementById("cardSearch").onclick = () => {
+    renderSearch();
+    show("viewSearch");
+    setTimeout(() => {
+      const box = document.getElementById("searchBox");
+      if (box) box.focus();
+    }, 80);
+  };
+}
+
+function renderTopics() {
+  const el = document.getElementById("viewTopics");
+  const topics = state.data.topics.slice().sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+
+  el.innerHTML = `
+    <div class="stickyBar">
+      <div>
+        <div class="muted">Library</div>
+        <div class="titleBig">Topics</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="row two">
+      <div>
+        <div class="label">New topic</div>
+        <input id="newTopicTitle" placeholder="The Father as the only true God" />
+      </div>
+      <div style="align-self:end;">
+        <button class="primary" id="btnNewTopic">Add Topic</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="list" id="topicList"></div>
+  `;
+
+  const list = el.querySelector("#topicList");
+
+  if (topics.length === 0) {
+    list.innerHTML = `<div class="muted">No topics yet. Add one above.</div>`;
+  } else {
+    list.innerHTML = topics.map(t => {
+      const s = topicStats(t.id);
+      const claimPreview = (t.claim || "").trim();
+
+      return `
+  <div class="item tapCard" data-open="${t.id}" role="button" tabindex="0">
+    <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+      <div style="flex:1;">
+        <div class="k" style="font-size:16px;">${esc(t.title)}</div>
+        <div class="muted">${claimPreview ? "Claim: " + esc(claimPreview) : "No claim yet"}</div>
+        <div class="muted">${s.verses} verses, ${s.objections} responses</div>
+      </div>
+      <div class="actions">
+        <button data-del="${t.id}" class="danger">Delete</button>
+      </div>
+    </div>
+  </div>
+`;
+    }).join("");
   }
 
-  function renderTopics() {
-    const el = document.getElementById("viewTopics");
-    const topics = state.data.topics.slice().sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  el.querySelector("#btnNewTopic").addEventListener("click", () => {
+    const input = el.querySelector("#newTopicTitle");
+    const title = (input.value || "").trim();
+    if (!title) { showToast("Type a topic name first."); return; }
 
-    el.innerHTML = `
-      <div class="stickyBar">
-        <div>
-          <div class="muted">Library</div>
-          <div class="titleBig">Topics</div>
-        </div>
-      </div>
+    state.data.topics.push({ id: uid(), title, claim: "", createdAt: nowISO(), updatedAt: nowISO() });
+    input.value = "";
+    save();
+    renderTopics();
+    renderHome();
+    showToast("Topic added.");
+  });
 
-      <div class="divider"></div>
+  list.addEventListener("click", (ev) => {
+  // If they tapped the Delete button, let the delete flow run
+  const delBtn = ev.target.closest('button[data-del]');
+  if (delBtn) {
+    const delId = delBtn.getAttribute("data-del");
+    if (!delId) return;
 
-      <div class="row two">
-        <div>
-          <div class="label">New topic</div>
-          <input id="newTopicTitle" placeholder="The Father as the only true God" />
-        </div>
-        <div style="align-self:end;">
-          <button class="primary" id="btnNewTopic">Add Topic</button>
-        </div>
-      </div>
+    const topic = getTopic(delId);
+    if (!topic) return;
 
-      <div class="divider"></div>
+    const deleted = {
+      topic: topic,
+      verses: state.data.verses.filter(v => v.topicId === delId),
+      objections: state.data.objections.filter(o => o.topicId === delId)
+    };
 
-      <div class="list" id="topicList"></div>
-    `;
+    state.data.topics = state.data.topics.filter(t => t.id !== delId);
+    state.data.verses = state.data.verses.filter(v => v.topicId !== delId);
+    state.data.objections = state.data.objections.filter(o => o.topicId !== delId);
+    save();
 
-    const list = el.querySelector("#topicList");
-
-    if (topics.length === 0) {
-      list.innerHTML = `<div class="muted">No topics yet. Add one above.</div>`;
-    } else {
-      list.innerHTML = topics.map(t => {
-        const s = topicStats(t.id);
-        const claimPreview = (t.claim || "").trim();
-        return `
-          <div class="item">
-            <div style="display:flex; justify-content:space-between; gap:10px;">
-              <div style="flex:1;">
-                <div class="k" style="font-size:16px;">${esc(t.title)}</div>
-                <div class="muted">${claimPreview ? "Claim: " + esc(claimPreview) : "No claim yet"}</div>
-                <div class="muted">${s.verses} verses, ${s.objections} responses</div>
-              </div>
-              <div class="actions">
-                <button data-open="${t.id}">Open</button>
-                <button data-del="${t.id}" class="danger">Delete</button>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    el.querySelector("#btnNewTopic").addEventListener("click", () => {
-      const input = el.querySelector("#newTopicTitle");
-      const title = (input.value || "").trim();
-      if (!title) {
-        showToast("Type a topic name first.");
-        return;
-      }
-      state.data.topics.push({ id: uid(), title, claim: "", createdAt: nowISO(), updatedAt: nowISO() });
-      input.value = "";
-      save();
-      renderTopics();
-      renderHome();
-      showToast("Topic added.");
-    });
-
-    list.addEventListener("click", (ev) => {
-      const btn = ev.target.closest("button");
-      if (!btn) return;
-
-      const openId = btn.getAttribute("data-open");
-      const delId = btn.getAttribute("data-del");
-
-      if (openId) {
-        openTopic(openId);
-        return;
-      }
-
-      if (delId) {
-        const topic = getTopic(delId);
-        if (!topic) return;
-
-        // Soft delete with undo
-        const deleted = {
-          topic: topic,
-          verses: state.data.verses.filter(v => v.topicId === delId),
-          objections: state.data.objections.filter(o => o.topicId === delId)
-        };
-
-        state.data.topics = state.data.topics.filter(t => t.id !== delId);
-        state.data.verses = state.data.verses.filter(v => v.topicId !== delId);
-        state.data.objections = state.data.objections.filter(o => o.topicId !== delId);
+    state.undo = {
+      label: "Undo delete topic",
+      expiresAt: Date.now() + 8000,
+      restoreFn: () => {
+        state.data.topics.push(deleted.topic);
+        state.data.verses.push(...deleted.verses);
+        state.data.objections.push(...deleted.objections);
         save();
-
-        state.undo = {
-          label: "Undo delete topic",
-          expiresAt: Date.now() + 8000,
-          restoreFn: () => {
-            state.data.topics.push(deleted.topic);
-            state.data.verses.push(...deleted.verses);
-            state.data.objections.push(...deleted.objections);
-            save();
-            renderTopics();
-            renderHome();
-            showToast("Restored.");
-          }
-        };
-
         renderTopics();
         renderHome();
-
-        showToast(`Deleted "${topic.title}".`, [{
-          label: "Undo",
-          onClick: () => {
-            if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
-            state.undo = null;
-          }
-        }]);
+        showToast("Restored.");
       }
-    });
+    };
+
+    renderTopics();
+    renderHome();
+
+    showToast(`Deleted "${topic.title}".`, [{
+      label: "Undo",
+      onClick: () => {
+        if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
+        state.undo = null;
+      }
+    }]);
+
+    return;
   }
 
+  // Otherwise, tap anywhere on the row opens the topic
+  const openEl = ev.target.closest('[data-open]');
+  if (!openEl) return;
+
+  const openId = openEl.getAttribute("data-open");
+  if (openId) openTopic(openId);
+});
+
+// Optional: Enter/Space opens the topic for keyboard users
+list.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter" && ev.key !== " ") return;
+
+  const openEl = ev.target.closest('[data-open]');
+  if (!openEl) return;
+
+  ev.preventDefault();
+  const openId = openEl.getAttribute("data-open");
+  if (openId) openTopic(openId);
+});
+}
   function openTopic(topicId, focusObjectionId, focusVerseId) {
   state.currentTopicId = topicId;
   state.currentFocusObjectionId = focusObjectionId || null;
