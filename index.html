@@ -113,7 +113,10 @@ main, header {
   <img src="yahweh-hebrew.png" alt="Yahweh">
 </div>
 <header>
-  <h1>Bible Study Builder</h1>
+  <h1>
+  Bible Study Builder
+  <div id="appVer" class="muted small"></div>
+</h1>
   <nav>
     <button class="primary" id="navHome">Home</button>
     <button id="navTopics">Topics</button>
@@ -140,7 +143,12 @@ main, header {
 <script>
 (function () {
   "use strict";
-
+  const APP_VERSION = "2026-03-04_01";
+  console.log("Bible Study Builder version:", APP_VERSION);
+  document.addEventListener("DOMContentLoaded", () => {
+  const v = document.getElementById("appVer");
+  if (v) v.textContent = "v" + APP_VERSION;
+});
   const STORAGE_KEY = "bible_study_builder_v1_clean";
 // Starter data used ONLY when a device has no saved data yet.
 // Replace the JSON below with YOUR exported backup when ready.
@@ -1355,11 +1363,17 @@ ${h.note ? `<div class="muted">${highlightSnippet(h.note, q)}</div>` : ``}
   }
 
   function init() {
-    state.data = load();
-    wireNav();
-    renderHome();
-    show("viewHome");
-  }
+  state.data = load();
+  wireNav();
+
+  renderSearch();
+  show("viewSearch");
+
+  setTimeout(() => {
+    const box = document.getElementById("searchBox");
+    if (box) box.focus();
+  }, 80);
+}
 
   init();
 })();
