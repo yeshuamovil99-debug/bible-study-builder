@@ -101,9 +101,11 @@ textarea.noteEditor:focus {
     .tapCard:active { transform: scale(0.99); }
 
     .tapCard:focus {
-      outline: 2px solid #111;
-      outline-offset: 2px;
-      .verseText {
+  outline: 2px solid #111;
+  outline-offset: 2px;
+}
+
+.verseText {
   font-size: 17px;
   line-height: 1.6;
   font-weight: 500;
@@ -115,8 +117,8 @@ textarea.noteEditor:focus {
   font-size: 12px;
   color: #777;
   margin-top: 2px;
- }
-  </style>
+}
+</style>
 </head>
 
 <body>
@@ -695,14 +697,14 @@ textarea.noteEditor:focus {
             <div style="white-space:pre-wrap; margin-top:8px;">${esc(topic.claim || "") || `<span class="muted">No claim yet.</span>`}</div>
 
             <details style="margin-top:12px;">
-              <summary>Edit claim</summary>
-              <div style="margin-top:10px;">
-                <textarea id="claimBox" placeholder="Claim...">${esc(topic.claim || "")}</textarea>
-                <div class="actions">
-                  <button class="primary" id="btnSaveClaim">Save</button>
-                </div>
-              </div>
-            </details>
+  <summary>Edit claim</summary>
+  <div style="margin-top:10px;">
+    <textarea class="noteEditor" id="claimBox" placeholder="Claim...">${esc(topic.claim || "")}</textarea>
+    <div class="actions">
+      <button class="primary" id="btnSaveClaim">Save</button>
+    </div>
+  </div>
+</details>
           </div>
 
           <div class="card">
@@ -750,27 +752,28 @@ ${v.note
   : `<div id="vnote-preview-${esc(v.id)}" class="muted" style="margin-top:8px;">No notes.</div>`
 }
                     <div class="row two" style="margin-top:10px;">
-                      <div>
-                        <div class="label">Reference</div>
-                        <input data-edit-vref="${v.id}" value="${esc(v.reference)}" />
-                      </div>
-                      <div>
-                        <div class="label">Tags</div>
-                        <input data-edit-vtags="${v.id}" value="${esc((v.tags || []).join(", "))}" />
-                      </div>
-                    </div>
+  <div>
+    <div class="label">Reference</div>
+    <input data-edit-vref="${v.id}" value="${esc(v.reference)}" />
+  </div>
+  <div>
+    <div class="label">Tags</div>
+    <input data-edit-vtags="${v.id}" value="${esc((v.tags || []).join(", "))}" />
+  </div>
+</div>
 
-                    <div style="margin-top:10px;">
-                      <div class="label">Notes</div>
-                      <textarea class="noteEditor" data-edit-vnote="${v.id}">${esc(v.note || "")}</textarea>
-                    </div>
+<div style="margin-top:10px;">
+  <div class="label">Notes</div>
+  <textarea class="noteEditor" data-edit-vnote="${v.id}">${esc(v.note || "")}</textarea>
+</div>
 
-                    <div class="actions" style="margin-top:10px;">
-                      <button data-star-verse="${v.id}">
-                        ${v.starred ? "Unstar" : "Star"}
-                      </button>
-                      <button class="danger" data-del-verse="${v.id}">Delete</button>
-                    </div>
+<div class="actions" style="margin-top:10px;">
+  <button class="primary" data-save-verse="${v.id}">Save</button>
+  <button data-star-verse="${v.id}">
+    ${v.starred ? "Unstar" : "Star"}
+  </button>
+  <button class="danger" data-del-verse="${v.id}">Delete</button>
+</div>
                   </details>
                 </div>
               `).join("")}
@@ -833,24 +836,25 @@ ${v.note
                       <summary>Edit objection response</summary>
 
                       <div class="row two" style="margin-top:10px;">
-                        <div>
-                          <div class="label">Objection verse</div>
-                          <input data-edit-oref="${esc(o.id)}" value="${esc(o.reference)}" />
-                        </div>
-                        <div>
-                          <div class="label">Note (optional)</div>
-                          <input data-edit-onote="${esc(o.id)}" value="${esc(o.note || "")}" />
-                        </div>
-                      </div>
+  <div>
+    <div class="label">Objection verse</div>
+    <input data-edit-oref="${esc(o.id)}" value="${esc(o.reference)}" />
+  </div>
+  <div>
+    <div class="label">Note (optional)</div>
+    <input data-edit-onote="${esc(o.id)}" value="${esc(o.note || "")}" />
+  </div>
+</div>
 
-                      <div style="margin-top:10px;">
-                        <div class="label">Objection response</div>
-                        <textarea data-edit-oresp="${esc(o.id)}">${esc(o.response || "")}</textarea>
-                      </div>
+<div style="margin-top:10px;">
+  <div class="label">Objection response</div>
+  <textarea class="noteEditor" data-edit-oresp="${esc(o.id)}">${esc(o.response || "")}</textarea>
+</div>
 
-                      <div class="actions">
-                        <button class="danger" data-del-obj="${esc(o.id)}">Delete</button>
-                      </div>
+<div class="actions">
+  <button class="primary" data-save-obj="${esc(o.id)}">Save</button>
+  <button class="danger" data-del-obj="${esc(o.id)}">Delete</button>
+</div>
                     </details>
                   </details>
                 </div>
@@ -872,7 +876,7 @@ ${v.note
                 </div>
                 <div style="margin-top:10px;">
                   <div class="label">Response</div>
-                  <textarea id="oResp" placeholder="Response..."></textarea>
+                  <textarea class="noteEditor" id="oResp" placeholder="Response..."></textarea>
                 </div>
                 <div class="actions">
                   <button class="primary" id="btnAddObj">Add</button>
@@ -907,16 +911,18 @@ ${v.note
         });
 
         el.querySelector("#tagFilter").addEventListener("change", (ev) => {
-          state.verseTagFilter = ev.target.value;
-          renderTopicOverview(topicId);
-        });
-        el.querySelectorAll(".noteEditor").forEach(t => {
+  state.verseTagFilter = ev.target.value;
+  renderTopicOverview(topicId);
+});
+
+el.querySelectorAll(".noteEditor").forEach(t => {
   autoGrowTextarea(t);
 
   t.addEventListener("input", () => {
     autoGrowTextarea(t);
   });
 });
+
 
         // === AUTO-FETCH-ON-REF-EDIT START ===
         function scheduleFetchForVerse(v) {
@@ -950,130 +956,126 @@ ${v.note
         }
         // === AUTO-FETCH-ON-REF-EDIT END ===
 
-        el.querySelector("#verseList").addEventListener("input", (ev) => {
-          const id =
-            ev.target.getAttribute("data-edit-vref") ||
-            ev.target.getAttribute("data-edit-vtags") ||
-            ev.target.getAttribute("data-edit-vnote");
-
-          if (!id) return;
-
-          const v = state.data.verses.find(x => x.id === id);
-          if (!v) return;
-
-          const editedReferenceField = ev.target.hasAttribute("data-edit-vref");
-          const oldRef = (v.reference || "").trim();
-
-          debounce("verse-" + id, 500, () => {
-            const r = el.querySelector(`[data-edit-vref="${id}"]`);
-            const t = el.querySelector(`[data-edit-vtags="${id}"]`);
-            const n = el.querySelector(`[data-edit-vnote="${id}"]`);
-            if (!r || !t || !n) return;
-
-            v.reference = (r.value || "").trim();
-            v.tags = (t.value || "").split(",").map(x => x.trim()).filter(Boolean);
-            v.note = (n.value || "").trim();
-            v.updatedAt = nowISO();
-
-            save();
-            showToast("Verse saved");
-
-            const preview = el.querySelector(`#vnote-preview-${id}`);
-            if (preview) {
-              if (v.note) {
-                preview.style.whiteSpace = "pre-wrap";
-                preview.textContent = v.note;
-              } else {
-                preview.style.whiteSpace = "normal";
-                preview.textContent = "No notes.";
-              }
-            }
-
-            const newRef = (v.reference || "").trim();
-            if (editedReferenceField && newRef && newRef !== oldRef) {
-              scheduleFetchForVerse(v);
-            }
-          });
-        });
+        
 
         // Verse list: copy, star, delete
         el.querySelector("#verseList").addEventListener("click", async (ev) => {
-          const copyBtn = ev.target.closest("button[data-copy-verse]");
-          if (copyBtn) {
-            const copyId = copyBtn.getAttribute("data-copy-verse");
-            const v = state.data.verses.find(x => x.id === copyId);
-            if (!v) return;
+  const copyBtn = ev.target.closest("button[data-copy-verse]");
+  if (copyBtn) {
+    const copyId = copyBtn.getAttribute("data-copy-verse");
+    const v = state.data.verses.find(x => x.id === copyId);
+    if (!v) return;
 
-            const topicLocal = getTopic(v.topicId);
-            const lines = [];
+    const topicLocal = getTopic(v.topicId);
+    const lines = [];
 
-            lines.push(v.reference || "");
-            if (v.text) lines.push(String(v.text).trim());
-            if (v.translation) lines.push("(" + v.translation + ")");
+    lines.push(v.reference || "");
+    if (v.text) lines.push(String(v.text).trim());
+    if (v.translation) lines.push("(" + v.translation + ")");
 
-            if (v.note) {
-              lines.push("");
-              lines.push("Notes:");
-              lines.push(String(v.note).trim());
-            }
+    if (v.note) {
+      lines.push("");
+      lines.push("Notes:");
+      lines.push(String(v.note).trim());
+    }
 
-            if (topicLocal && topicLocal.title) {
-              lines.push("");
-              lines.push("Topic: " + topicLocal.title);
-            }
+    if (topicLocal && topicLocal.title) {
+      lines.push("");
+      lines.push("Topic: " + topicLocal.title);
+    }
 
-            await copyText(lines.join("\n"));
-            return;
-          }
+    await copyText(lines.join("\n"));
+    return;
+  }
 
-          const btn = ev.target.closest("button");
-          if (!btn) return;
+  const saveVerseBtn = ev.target.closest("button[data-save-verse]");
+  if (saveVerseBtn) {
+    const id = saveVerseBtn.getAttribute("data-save-verse");
+    const v = state.data.verses.find(x => x.id === id);
+    if (!v) return;
 
-          const starId = btn.getAttribute("data-star-verse");
-          if (starId) {
-            const v = state.data.verses.find(x => x.id === starId);
-            if (!v) return;
+    const r = el.querySelector(`[data-edit-vref="${id}"]`);
+    const t = el.querySelector(`[data-edit-vtags="${id}"]`);
+    const n = el.querySelector(`[data-edit-vnote="${id}"]`);
+    if (!r || !t || !n) return;
 
-            v.starred = !v.starred;
-            v.updatedAt = nowISO();
-            save();
+    const oldRef = (v.reference || "").trim();
+    const newRef = (r.value || "").trim();
 
-            showToast(v.starred ? "Starred" : "Unstarred");
-            renderTopicOverview(topicId);
-            return;
-          }
+    v.reference = newRef;
+    v.tags = (t.value || "").split(",").map(x => x.trim()).filter(Boolean);
+    v.note = (n.value || "").trim();
+    v.updatedAt = nowISO();
+    save();
 
-          const delId = btn.getAttribute("data-del-verse");
-          if (!delId) return;
+    const preview = el.querySelector(`#vnote-preview-${id}`);
+    if (preview) {
+      if (v.note) {
+        preview.style.whiteSpace = "pre-wrap";
+        preview.textContent = v.note;
+      } else {
+        preview.style.whiteSpace = "normal";
+        preview.textContent = "No notes.";
+      }
+    }
 
-          const v = state.data.verses.find(x => x.id === delId);
-          if (!v) return;
+    showToast("Verse saved");
 
-          state.data.verses = state.data.verses.filter(x => x.id !== delId);
-          save();
-          renderHome();
+    if (newRef && newRef !== oldRef) {
+      scheduleFetchForVerse(v);
+    }
 
-          state.undo = {
-            label: "Undo delete verse",
-            expiresAt: Date.now() + 8000,
-            restoreFn: () => {
-              state.data.verses.push(v);
-              save();
-              renderTopicOverview(topicId);
-              renderHome();
-              showToast("Restored.");
-            }
-          };
+    return;
+  }
 
-          renderTopicOverview(topicId);
-          showToast("Verse deleted.", [{
-            label: "Undo",
-            onClick: () => {
-              if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
-              state.undo = null;
-            }
-          }]);
-        });
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+
+  const starId = btn.getAttribute("data-star-verse");
+  if (starId) {
+    const v = state.data.verses.find(x => x.id === starId);
+    if (!v) return;
+
+    v.starred = !v.starred;
+    v.updatedAt = nowISO();
+    save();
+
+    showToast(v.starred ? "Starred" : "Unstarred");
+    renderTopicOverview(topicId);
+    return;
+  }
+
+  const delId = btn.getAttribute("data-del-verse");
+  if (!delId) return;
+
+  const v = state.data.verses.find(x => x.id === delId);
+  if (!v) return;
+
+  state.data.verses = state.data.verses.filter(x => x.id !== delId);
+  save();
+  renderHome();
+
+  state.undo = {
+    label: "Undo delete verse",
+    expiresAt: Date.now() + 8000,
+    restoreFn: () => {
+      state.data.verses.push(v);
+      save();
+      renderTopicOverview(topicId);
+      renderHome();
+      showToast("Restored.");
+    }
+  };
+
+  renderTopicOverview(topicId);
+  showToast("Verse deleted.", [{
+    label: "Undo",
+    onClick: () => {
+      if (state.undo && Date.now() <= state.undo.expiresAt) state.undo.restoreFn();
+      state.undo = null;
+    }
+  }]);
+});
 
         // Add verse
         el.querySelector("#btnAddVerse").addEventListener("click", async () => {
@@ -1176,7 +1178,27 @@ ${v.note
             await copyText(lines.join("\n"));
             return;
           }
+const saveObjBtn = ev.target.closest("button[data-save-obj]");
+if (saveObjBtn) {
+  const id = saveObjBtn.getAttribute("data-save-obj");
+  const o = state.data.objections.find(x => x.id === id);
+  if (!o) return;
 
+  const refBox = el.querySelector(`[data-edit-oref="${id}"]`);
+  const noteBox = el.querySelector(`[data-edit-onote="${id}"]`);
+  const respBox = el.querySelector(`[data-edit-oresp="${id}"]`);
+  if (!refBox || !noteBox || !respBox) return;
+
+  o.reference = (refBox.value || "").trim();
+  o.note = (noteBox.value || "").trim();
+  o.response = (respBox.value || "").trim();
+  o.updatedAt = nowISO();
+  save();
+
+  showToast("Objection saved");
+  renderTopicOverview(topicId);
+  return;
+}
           const delBtn = ev.target.closest("button[data-del-obj]");
           if (!delBtn) return;
 
