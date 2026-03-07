@@ -103,7 +103,19 @@ textarea.noteEditor:focus {
     .tapCard:focus {
       outline: 2px solid #111;
       outline-offset: 2px;
-    }
+      .verseText {
+  font-size: 17px;
+  line-height: 1.6;
+  font-weight: 500;
+  color: #111;
+  margin-top: 10px;
+}
+
+.verseTranslation {
+  font-size: 12px;
+  color: #777;
+  margin-top: 2px;
+ }
   </style>
 </head>
 
@@ -729,11 +741,10 @@ textarea.noteEditor:focus {
                       : ``}
 
                     ${v.text
-  ? `<div style="white-space:pre-wrap; margin-top:8px;">${esc(v.text)}</div>
-     ${v.translation ? `<div class="muted small">(${esc(v.translation)})</div>` : ``}`
+  ? `<div class="verseText" style="white-space:pre-wrap;">${esc(v.text)}</div>
+     ${v.translation ? `<div class="verseTranslation">(${esc(v.translation)})</div>` : ``}`
   : ``
 }
-
 ${v.note
   ? `<div id="vnote-preview-${esc(v.id)}" class="muted" style="white-space:pre-wrap; margin-top:8px;">${esc(v.note)}</div>`
   : `<div id="vnote-preview-${esc(v.id)}" class="muted" style="margin-top:8px;">No notes.</div>`
