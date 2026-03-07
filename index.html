@@ -34,6 +34,14 @@
       border: 1px solid #d9d9e6; border-radius: var(--radius); background: #fff;
     }
     textarea { min-height: 90px; resize: vertical; }
+    textarea.noteEditor {
+  min-height: 90px;
+  transition: min-height 0.15s ease;
+}
+
+textarea.noteEditor:focus {
+  min-height: 220px;
+}
     .muted { color: #666; font-size: 13px; }
     .divider { height: 1px; background: #ececf5; margin: 12px 0; }
     .list { display: flex; flex-direction: column; gap: 10px; }
@@ -165,6 +173,10 @@
         clearTimeout(_debounceTimers[key]);
         _debounceTimers[key] = setTimeout(fn, ms);
       }
+      function autoGrowTextarea(el) {
+  el.style.height = "auto";
+  el.style.height = el.scrollHeight + "px";
+}
 
       // Bible book order (Genesis -> Revelation)
       const BOOK_ORDER = [
@@ -739,7 +751,7 @@ ${v.note
 
                     <div style="margin-top:10px;">
                       <div class="label">Notes</div>
-                      <textarea data-edit-vnote="${v.id}">${esc(v.note || "")}</textarea>
+                      <textarea class="noteEditor" data-edit-vnote="${v.id}">${esc(v.note || "")}</textarea>
                     </div>
 
                     <div class="actions" style="margin-top:10px;">
@@ -887,6 +899,13 @@ ${v.note
           state.verseTagFilter = ev.target.value;
           renderTopicOverview(topicId);
         });
+        el.querySelectorAll(".noteEditor").forEach(t => {
+  autoGrowTextarea(t);
+
+  t.addEventListener("input", () => {
+    autoGrowTextarea(t);
+  });
+});
 
         // === AUTO-FETCH-ON-REF-EDIT START ===
         function scheduleFetchForVerse(v) {
